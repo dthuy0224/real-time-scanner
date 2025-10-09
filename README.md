@@ -30,11 +30,7 @@
 - [Configuration](#-configuration)
 - [API Documentation](#-api-documentation)
 - [Project Structure](#-project-structure)
-- [Development Guide](#-development-guide)
 - [Performance Metrics](#-performance-metrics)
-- [Troubleshooting](#-troubleshooting)
-- [Known Issues & Solutions](#-known-issues--solutions)
-- [Contributing](#-contributing)
 - [License](#-license)
 
 ---
