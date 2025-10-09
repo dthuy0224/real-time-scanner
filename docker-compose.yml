@@ -1,0 +1,92 @@
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    container_name: realtime_scanner_db
+    environment:
+      POSTGRES_USER: scanner
+      POSTGRES_PASSWORD: scanner123
+      POSTGRES_DB: token_scanner
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - scanner_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scanner -d token_scanner"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # FastAPI Backend
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: realtime_scanner_api
+    environment:
+      DATABASE_URL: postgresql://scanner:scanner123@db:5432/token_scanner
+      ETH_RPC_URL: ${ETH_RPC_URL:-https://eth-mainnet.g.alchemy.com/v2/IVlRNEd_O6j0fCxy_iTqR}
+      BSC_RPC_URL: ${BSC_RPC_URL:-https://bsc-dataseed.binance.org/}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - scanner_network
+    volumes:
+      - ./backend:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Ingestor Service
+  ingestor:
+    build:
+      context: ./ingestor
+      dockerfile: Dockerfile
+    container_name: realtime_scanner_ingestor
+    environment:
+      DATABASE_URL: postgresql://scanner:scanner123@db:5432/token_scanner
+      ETH_RPC_URL: ${ETH_RPC_URL:-https://eth-mainnet.g.alchemy.com/v2/IVlRNEd_O6j0fCxy_iTqR}
+      BSC_RPC_URL: ${BSC_RPC_URL:-https://bsc-dataseed.binance.org/}
+      ETH_WS_URL: ${ETH_WS_URL:-wss://eth-mainnet.g.alchemy.com/v2/IVlRNEd_O6j0fCxy_iTqR}
+      BSC_WS_URL: ${BSC_WS_URL:-wss://bsc-ws-node.nariox.org:443}
+      CONFIRMATION_BLOCKS: 3
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - scanner_network
+    volumes:
+      - ./ingestor:/app
+    restart: unless-stopped
+
+  # React Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: realtime_scanner_ui
+    ports:
+      - "3000:3000"
+    environment:
+      REACT_APP_API_URL: http://localhost:8000
+    depends_on:
+      - api
+    networks:
+      - scanner_network
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    stdin_open: true
+    tty: true
+
+networks:
+  scanner_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+
+
