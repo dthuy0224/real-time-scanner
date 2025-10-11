@@ -410,48 +410,6 @@ docker-compose logs -f api
 docker-compose logs -f ingestor
 docker-compose logs -f frontend
 ```
-
-## 🐛 Troubleshooting
-
-### Ingestor not detecting tokens
-
-1. **Check RPC connection**:
-   ```bash
-   docker-compose logs ingestor
-   ```
-   Look for "Connected to ETH: True"
-
-2. **Verify RPC URL** in `.env` file
-
-3. **Rate limiting**: Free RPC endpoints have rate limits. Consider upgrading or using multiple providers.
-
-### Frontend not loading data
-
-1. **Check API is running**:
-   ```bash
-   curl http://localhost:8000/health
-   ```
-
-2. **Check CORS settings** in `backend/app/main.py`
-
-3. **Verify API URL** in frontend `.env`:
-   ```
-   REACT_APP_API_URL=http://localhost:8000
-   ```
-
-### Database connection errors
-
-1. **Wait for DB to be ready**:
-   ```bash
-   docker-compose logs db
-   ```
-
-2. **Reset database**:
-   ```bash
-   docker-compose down -v
-   docker-compose up --build
-   ```
-
 ## 📊 Performance Notes
 
 - **Block Processing**: ~12s per block (ETH), ~3s per block (BSC)
@@ -459,32 +417,4 @@ docker-compose logs -f frontend
 - **API Response Time**: <100ms for most endpoints
 - **Database**: Indexed queries, handles 1M+ tokens efficiently
 
-## 🔐 Security Considerations
 
-- Never commit `.env` file with real API keys
-- Use rate-limited RPC endpoints
-- Implement API authentication for production
-- Regularly backup database
-- Monitor for abnormal activity
-
-## 📝 License
-
-MIT License - See LICENSE file for details
-
-## 🤝 Contributing
-
-Contributions welcome! Please:
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push and create a Pull Request
-
-## 📧 Support
-
-For issues or questions:
-- Open an issue on GitHub
-- Check existing issues for solutions
-
----
-
-**Built with ❤️ using Python, FastAPI, React, and Docker**
