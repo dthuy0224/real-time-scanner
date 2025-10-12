@@ -12,11 +12,11 @@ from database import SessionLocal, Base, engine
 from models import Token
 from token_detector import TokenDetector
 
-# Configure logger
+# Configure structured logger
 logger.remove()
 logger.add(
     sys.stdout,
-    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan> - <level>{message}</level>",
+    format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan> - <level>{message}</level>",
     level="INFO"
 )
 
@@ -29,19 +29,20 @@ Base.metadata.create_all(bind=engine)
 class BlockchainMonitor:
     def __init__(self, rpc_url: str, ws_url: str, network: str):
         self.network = network
-        self.rpc_url = rpc_url
-        self.ws_url = ws_url
         self.w3 = Web3(Web3.HTTPProvider(rpc_url))
+        
+        # Use the global logger
+        self.logger = logger
         
         # Inject POA middleware for BSC and other POA chains
         if network == "BSC":
             self.w3.middleware_onion.inject(geth_poa_middleware, layer=0)
-            logger.info(f"✅ POA middleware injected for {network}")
+            self.logger.info(f"✅ POA middleware injected for {network}")
         
-        self.detector = TokenDetector(self.w3, network)
+        self.detector = TokenDetector(self.w3, network, self.logger)
         self.pending_tokens: Set[str] = set()  # Track pending confirmations
         
-        logger.info(f"🔗 Connected to {network}: {self.w3.is_connected()}")
+        self.logger.info(f"🔗 Connected to {network}: {self.w3.is_connected()}")
     
     def save_token_to_db(self, token_data: dict, confirmed: bool = False):
         """Save token to database"""
@@ -58,7 +59,7 @@ class BlockchainMonitor:
                 if confirmed and not existing.confirmed:
                     existing.confirmed = True
                     db.commit()
-                    logger.info(f"✅ Token {existing.symbol} confirmed")
+                    self.logger.info(f"✅ Token {existing.symbol} confirmed")
                 return
             
             # Create new token record
@@ -81,18 +82,18 @@ class BlockchainMonitor:
             db.add(token)
             db.commit()
             
-            logger.success(
+            self.logger.success(
                 f"💾 Saved token: {token.name or 'Unknown'} ({token.symbol or 'N/A'}) "
                 f"at {token.address[:10]}... on {self.network}"
             )
         
         except IntegrityError:
             db.rollback()
-            logger.warning(f"Token {token_data['address']} already exists in DB")
+            self.logger.warning(f"Token {token_data['address']} already exists in DB")
         
         except Exception as e:
             db.rollback()
-            logger.error(f"Error saving token: {e}")
+            self.logger.error(f"Error saving token: {e}")
         
         finally:
             db.close()
@@ -127,7 +128,7 @@ class BlockchainMonitor:
             if not block or not block.transactions:
                 return
             
-            logger.info(f"📦 Processing block {block_number} ({len(block.transactions)} txs) on {self.network}")
+            self.logger.info(f"📦 Processing block {block_number} ({len(block.transactions)} txs) on {self.network}")
             
             for tx in block.transactions:
                 # Check if it's a contract creation (to address is None)
@@ -138,7 +139,7 @@ class BlockchainMonitor:
                     is_creation, contract_address = self.detector.is_contract_creation(tx_hash)
                     
                     if is_creation and contract_address:
-                        logger.info(f"🆕 New contract deployed: {contract_address}")
+                        self.logger.info(f"🆕 New contract deployed: {contract_address}")
                         
                         # Try to fetch token metadata
                         metadata = self.detector.fetch_token_metadata(contract_address)
@@ -174,7 +175,7 @@ class BlockchainMonitor:
                                 self.pending_tokens.add(f"{contract_address}:{block_number}")
         
         except Exception as e:
-            logger.error(f"Error processing block {block_number}: {e}")
+            self.logger.error(f"Error processing block {block_number}: {e}")
     
     async def check_pending_confirmations(self):
         """Check pending tokens for confirmations"""
@@ -200,11 +201,11 @@ class BlockchainMonitor:
                     if token and not token.confirmed:
                         token.confirmed = True
                         db.commit()
-                        logger.success(f"✅ Confirmed: {token.symbol or token.address[:10]}...")
+                        self.logger.success(f"✅ Confirmed: {token.symbol or token.address[:10]}...")
                         confirmed_tokens.add(pending)
                 
                 except Exception as e:
-                    logger.error(f"Error confirming token: {e}")
+                    self.logger.error(f"Error confirming token: {e}")
                     db.rollback()
                 finally:
                     db.close()
@@ -214,40 +215,65 @@ class BlockchainMonitor:
     
     async def monitor_blocks(self):
         """Monitor new blocks continuously"""
-        logger.info(f"🚀 Starting block monitor for {self.network}")
+        self.logger.info(f"🚀 Starting block monitor for {self.network}")
         
         # Check if connected before starting
         if not self.w3.is_connected():
-            logger.error(f"❌ Cannot monitor {self.network}: Not connected to RPC")
+            self.logger.error(f"❌ Cannot monitor {self.network}: Not connected to RPC")
             return
+        
+        consecutive_errors = 0
+        max_consecutive_errors = 10
         
         try:
             last_processed_block = self.w3.eth.block_number
-            logger.info(f"Starting from block {last_processed_block}")
+            self.logger.info(f"Starting from block {last_processed_block}")
         except Exception as e:
-            logger.error(f"❌ Cannot get initial block number for {self.network}: {e}")
+            self.logger.error(f"❌ Cannot get initial block number for {self.network}: {e}")
             return
         
         while True:
             try:
+                # Reset error counter on successful operation
+                consecutive_errors = 0
+                
                 current_block = self.w3.eth.block_number
                 
                 # Process new blocks
                 if current_block > last_processed_block:
                     for block_num in range(last_processed_block + 1, current_block + 1):
-                        await self.process_block(block_num)
+                        try:
+                            await self.process_block(block_num)
+                        except Exception as block_error:
+                            self.logger.error(f"Failed to process block {block_num}: {block_error}")
+                            # Continue with next block instead of crashing
+                            continue
                     
                     last_processed_block = current_block
                 
                 # Check pending confirmations
-                await self.check_pending_confirmations()
+                try:
+                    await self.check_pending_confirmations()
+                except Exception as confirm_error:
+                    self.logger.error(f"Error checking pending confirmations: {confirm_error}")
+                    # Continue monitoring even if confirmation check fails
                 
                 # Wait before next check
                 await asyncio.sleep(12)  # ~12 seconds per block for ETH
             
             except Exception as e:
-                logger.error(f"Error in monitor loop: {e}")
-                await asyncio.sleep(5)
+                consecutive_errors += 1
+                self.logger.error(f"Error in monitor loop (attempt {consecutive_errors}/{max_consecutive_errors}): {e}")
+                
+                # If too many consecutive errors, wait longer before retrying
+                if consecutive_errors >= max_consecutive_errors:
+                    self.logger.error(f"Too many consecutive errors for {self.network}. Waiting 60 seconds before retrying...")
+                    await asyncio.sleep(60)
+                    consecutive_errors = 0  # Reset after long wait
+                else:
+                    # Exponential backoff: 5s, 10s, 20s, etc.
+                    wait_time = min(5 * (2 ** (consecutive_errors - 1)), 60)
+                    await asyncio.sleep(wait_time)
 
 
 async def main():

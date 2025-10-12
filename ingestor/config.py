@@ -17,13 +17,6 @@ class Settings(BaseSettings):
     # Confirmation settings
     confirmation_blocks: int = 3
     
-    # Retry settings
-    max_retries: int = 3
-    retry_delay: int = 2
-    
-    # Batch settings
-    batch_size: int = 10
-    
     class Config:
         env_file = ".env"
         case_sensitive = False

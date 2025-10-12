@@ -214,7 +214,7 @@ cd RealTime\ Scanner
 Copy the example environment file:
 
 ```bash
-cp env.example .env
+cp .env.example .env
 ```
 
 Edit `.env` and add your RPC URLs:
@@ -223,6 +223,7 @@ Edit `.env` and add your RPC URLs:
 # Get free API keys from:
 # - Alchemy: https://www.alchemy.com/
 # - Infura: https://infura.io/
+# - QuickNode: https://www.quicknode.com/
 
 ETH_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY
 ETH_WS_URL=wss://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY
@@ -230,6 +231,8 @@ ETH_WS_URL=wss://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY
 BSC_RPC_URL=https://bsc-dataseed.binance.org/
 BSC_WS_URL=wss://bsc-ws-node.nariox.org:443
 ```
+
+**Important**: Replace `YOUR_API_KEY` with your actual API key from your chosen RPC provider. See the [Configuration](#-configuration) section for rate limits and provider recommendations.
 
 ### 3. Start all services
 
@@ -263,6 +266,84 @@ This will start:
 | `BSC_RPC_URL` | BSC RPC endpoint | Required |
 | `BSC_WS_URL` | BSC WebSocket endpoint | Required |
 | `CONFIRMATION_BLOCKS` | Block confirmations needed | `3` |
+| `MAX_RETRIES` | Maximum retry attempts for failed requests | `3` |
+| `RETRY_DELAY` | Base delay between retries (seconds) | `2` |
+| `BATCH_SIZE` | Number of items to process in batches | `10` |
+| `LOG_LEVEL` | Logging level (DEBUG, INFO, WARNING, ERROR) | `INFO` |
+
+### RPC/WebSocket Rate Limits
+
+**Important**: Different RPC providers have different rate limits. Be aware of these limits to avoid service interruptions:
+
+#### Free Tier Limits:
+- **Alchemy**: 330 requests/second, 300M compute units/month
+- **Infura**: 100,000 requests/day, 10 requests/second
+- **BSC Public Nodes**: ~10 requests/second
+- **QuickNode**: 1M requests/month
+
+#### Rate Limiting Strategy:
+1. **Exponential Backoff**: Automatic retry with increasing delays (1s, 2s, 4s, 8s...)
+2. **Request Throttling**: Built-in delays between block processing
+3. **Error Handling**: Graceful degradation when rate limits are hit
+4. **Connection Pooling**: Efficient connection reuse to reduce overhead
+
+#### Recommendations:
+- Use paid RPC services for production workloads
+- Implement multiple RPC endpoints for redundancy
+- Monitor your usage to stay within limits
+- Consider using WebSocket connections for real-time monitoring
+
+### Retry/Backoff Strategy
+
+The system implements a comprehensive retry and backoff strategy:
+
+#### Token Detection Retries:
+- **Max Attempts**: 3 retries per token metadata fetch
+- **Backoff Strategy**: Exponential wait (1s, 2s, 4s, 8s, max 10s)
+- **Tenacity Library**: Used for robust retry logic with decorators
+
+#### Block Processing Resilience:
+- **Consecutive Error Tracking**: Monitors failed operations
+- **Exponential Backoff**: 5s → 10s → 20s → 40s → 60s (max)
+- **Circuit Breaker**: Long wait (60s) after 10 consecutive errors
+- **Graceful Degradation**: Continues processing other blocks if one fails
+
+#### Database Operations:
+- **Connection Pooling**: 5-10 connections with overflow
+- **Transaction Rollback**: Automatic rollback on errors
+- **Duplicate Prevention**: Handles IntegrityError gracefully
+
+### Structured Logging
+
+The system uses structured logging with correlation IDs:
+
+#### Log Format:
+```
+2025-01-08 10:30:45.123 | INFO     | ingestor | a1b2c3d4 - 🚀 Starting block monitor for ETH
+```
+
+#### Features:
+- **Correlation IDs**: Unique 8-character IDs for tracking related operations
+- **Timestamp Precision**: Millisecond precision for timing analysis
+- **Contextual Information**: Network, operation type, and error details
+- **Log Levels**: DEBUG, INFO, WARNING, ERROR, SUCCESS
+- **Structured Data**: JSON-friendly format for log aggregation tools
+
+### Exception Handling
+
+Comprehensive exception handling prevents system crashes:
+
+#### Critical Path Protection:
+- **Block Processing**: Individual block failures don't stop monitoring
+- **Token Detection**: Failed tokens are logged and skipped
+- **Database Operations**: All DB errors are caught and logged
+- **Network Issues**: Connection failures trigger retry logic
+
+#### Error Recovery:
+- **Automatic Restart**: Services restart on critical failures
+- **State Persistence**: Processing state is maintained across restarts
+- **Health Checks**: Regular health monitoring with automatic recovery
+- **Graceful Shutdown**: Clean shutdown on SIGTERM/SIGINT
 
 ---
 
@@ -361,7 +442,7 @@ RealTime Scanner/
 │   └── package.json
 │
 ├── docker-compose.yml     # Docker orchestration
-├── env.example           # Environment template
+├── .env.example          # Environment template
 └── README.md             # This file
 ```
 
@@ -467,24 +548,40 @@ docker-compose logs -f frontend
 - Regularly backup database
 - Monitor for abnormal activity
 
+## ⚖️ Ethical and Legal Disclaimer
+
+**IMPORTANT**: This RealTime Token Scanner is designed and intended for **educational and research purposes only**. 
+
+### Permitted Uses:
+- ✅ **Academic Research**: Studying blockchain token deployment patterns
+- ✅ **Educational Learning**: Understanding blockchain development and monitoring
+- ✅ **Development Testing**: Testing blockchain applications and tools
+- ✅ **Market Analysis**: Researching token creation trends and patterns
+
+### Prohibited Uses:
+- ❌ **Front-running**: Using detected tokens to gain unfair trading advantages
+- ❌ **Market Manipulation**: Coordinating trades or creating artificial market conditions
+- ❌ **Malicious Activity**: Any activity intended to harm users or manipulate markets
+- ❌ **Commercial Exploitation**: Using this tool for profit without proper authorization
+- ❌ **Spam or Abuse**: Deploying or promoting tokens for fraudulent purposes
+
+### Legal Notice:
+- This software is provided "as is" without warranty
+- Users are responsible for compliance with all applicable laws and regulations
+- The authors disclaim any liability for misuse of this software
+- Users must ensure their use complies with local and international laws
+- This tool should not be used to violate terms of service of any platform
+
+### Responsible Use Guidelines:
+1. **Transparency**: Clearly disclose any research or analysis conducted
+2. **Privacy**: Respect user privacy and data protection laws
+3. **Fairness**: Do not use information to gain unfair advantages
+4. **Compliance**: Follow all applicable financial and securities regulations
+5. **Ethics**: Use this tool responsibly and ethically
+
+**By using this software, you agree to use it only for legitimate research and educational purposes and acknowledge that any misuse is your sole responsibility.**
+
 ## 📝 License
 
 MIT License - See LICENSE file for details
 
-## 🤝 Contributing
-
-Contributions welcome! Please:
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push and create a Pull Request
-
-## 📧 Support
-
-For issues or questions:
-- Open an issue on GitHub
-- Check existing issues for solutions
-
----
-
-**Built with ❤️ using Python, FastAPI, React, and Docker**
